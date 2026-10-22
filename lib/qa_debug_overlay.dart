@@ -13,10 +13,10 @@
 /// );
 /// ```
 ///
-/// 2. Add interceptor (if using Dio):
+/// 2. Log your HTTP client:
 /// ```dart
-/// final dio = Dio();
-/// dio.interceptors.add(DebugInterceptor());
+/// final dio = Dio()..interceptors.add(DebugInterceptor()); // Dio
+/// final client = DebugHttpClient();                        // package:http
 /// ```
 ///
 /// That's it! Tap the 🐞 button to view logs, then copy cURL, request,
@@ -28,6 +28,7 @@ export 'src/controller/debug_overlay_controller.dart';
 
 // Network Interceptors & Helpers
 export 'src/interceptor/debug_interceptor.dart'; // For Dio automatic logging
+export 'src/interceptor/debug_http_client.dart'; // For package:http automatic logging
 export 'src/helpers/firebase_logger.dart'; // For Firebase
 export 'src/helpers/network_log_formatter.dart'; // cURL, request/response text, bug report
 

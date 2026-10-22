@@ -67,10 +67,10 @@ class FirebaseLogger {
       final log = NetworkLog.create(
         method: 'FIREBASE',
         endpoint: name,
-        statusCode: 500,
+        statusCode: _statusFor(e),
         duration: duration,
         requestBody: params,
-        errorMessage: e.toString(),
+        errorMessage: _describeError(e),
       );
 
       DebugOverlayController.instance.addLog(log);
@@ -112,9 +112,9 @@ class FirebaseLogger {
       final log = NetworkLog.create(
         method: 'FIRESTORE GET',
         endpoint: path,
-        statusCode: 500,
+        statusCode: _statusFor(e),
         duration: duration,
-        errorMessage: e.toString(),
+        errorMessage: _describeError(e),
       );
 
       DebugOverlayController.instance.addLog(log);
@@ -155,16 +155,61 @@ class FirebaseLogger {
       final log = NetworkLog.create(
         method: 'FIRESTORE SET',
         endpoint: path,
-        statusCode: 500,
+        statusCode: _statusFor(e),
         duration: duration,
         requestBody: data,
-        errorMessage: e.toString(),
+        errorMessage: _describeError(e),
       );
 
       DebugOverlayController.instance.addLog(log);
 
       rethrow;
     }
+  }
+
+  /// HTTP-like status for Firebase error codes, as Cloud Functions uses them,
+  /// so a `permission-denied` shows up as 403 instead of a generic 500.
+  static const _statusByCode = {
+    'cancelled': 499,
+    'unknown': 500,
+    'invalid-argument': 400,
+    'deadline-exceeded': 504,
+    'not-found': 404,
+    'already-exists': 409,
+    'permission-denied': 403,
+    'resource-exhausted': 429,
+    'failed-precondition': 400,
+    'aborted': 409,
+    'out-of-range': 400,
+    'unimplemented': 501,
+    'internal': 500,
+    'unavailable': 503,
+    'data-loss': 500,
+    'unauthenticated': 401,
+  };
+
+  /// The `code` of a FirebaseException-like error, if it has one.
+  static String? _errorCode(Object error) {
+    try {
+      final code = (error as dynamic).code;
+      return code is String ? code : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static int _statusFor(Object error) =>
+      _statusByCode[_errorCode(error)] ?? 500;
+
+  static String _describeError(Object error) {
+    final code = _errorCode(error);
+    String? message;
+    try {
+      final value = (error as dynamic).message;
+      if (value is String && value.isNotEmpty) message = value;
+    } catch (_) {}
+    if (code == null) return error.toString();
+    return '[$code] ${message ?? error}';
   }
 
   /// Extracts meaningful data from Firebase objects for logging purposes.

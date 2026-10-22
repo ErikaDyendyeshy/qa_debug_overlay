@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
+import 'package:http/http.dart' as http;
 import 'package:qa_debug_overlay/qa_debug_overlay.dart';
 
 /// Example application demonstrating the Debug Overlay
-/// 
+///
 /// Super simple - no initialization needed!
 /// Just wrap your app and add the interceptor.
 void main() {
@@ -38,13 +39,14 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   late final Dio _dio;
+  final _httpClient = DebugHttpClient();
   bool _isLoading = false;
   String _result = '';
 
   @override
   void initState() {
     super.initState();
-    
+
     _dio = Dio(BaseOptions(
       baseUrl: 'https://jsonplaceholder.typicode.com',
       connectTimeout: const Duration(seconds: 10),
@@ -153,6 +155,19 @@ class _HomePageState extends State<HomePage> {
               () => _makeRequest('GET', 'https://nonexistent.invalid/ping'),
               Colors.blueGrey,
             ),
+            const SizedBox(height: 24),
+            const Text(
+              'package:http',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            _buildRequestButton(
+              'http GET Comments',
+              () => _makeHttpRequest(
+                'https://jsonplaceholder.typicode.com/comments?postId=1',
+              ),
+              Colors.teal,
+            ),
             const SizedBox(height: 32),
             if (_isLoading)
               const Center(child: CircularProgressIndicator())
@@ -196,6 +211,38 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  @override
+  void dispose() {
+    _httpClient.close();
+    super.dispose();
+  }
+
+  Future<void> _makeHttpRequest(String url) async {
+    setState(() {
+      _isLoading = true;
+      _result = '';
+    });
+
+    try {
+      final response = await _httpClient.get(
+        Uri.parse(url),
+        headers: {'Authorization': 'Bearer http-demo-token'},
+      );
+      setState(() {
+        _result = 'Status: ${response.statusCode}\n'
+            'Body length: ${response.body.length}';
+      });
+    } on http.ClientException catch (e) {
+      setState(() {
+        _result = 'Error: $e';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
   Future<void> _makeRequest(
     String method,
     String path, {
@@ -208,7 +255,7 @@ class _HomePageState extends State<HomePage> {
 
     try {
       Response response;
-      
+
       switch (method) {
         case 'GET':
           response = await _dio.get(path);

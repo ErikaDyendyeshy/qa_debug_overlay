@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-10-22
+
+### ✨ New
+- `DebugHttpClient`: automatic logging for `package:http`. It wraps any `http.Client`
+  and logs headers, JSON, text, multipart and binary bodies, timings and connection
+  errors. Responses still stream to the caller unchanged.
+- `FirebaseLogger` maps Firebase error codes to HTTP-like statuses
+  (`permission-denied` → 403, `not-found` → 404, `unauthenticated` → 401, …) and
+  logs them as `[code] message`. Before, every error was a generic 500.
+
+### 🔧 Maintenance
+- New dependency: `http: ^1.2.0`.
+- Added tests for `DebugHttpClient` and `FirebaseLogger` (55 tests in total).
+- The example app has a `package:http` request.
+
 ## [1.1.2] - 2026-10-22
 
 ### 📝 Docs

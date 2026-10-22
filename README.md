@@ -8,7 +8,7 @@ An in-app network inspector for Flutter, built for QA. See every request and res
 right on the device, find failed calls in a second, and send developers exactly what
 they need: **cURL, request, response, auth token or a full bug report — in one tap.**
 
-![QA Debug Overlay demo](https://github.com/ErikaDyendyeshy/qa_debug_overlay/raw/v1.1.2/doc/demo.gif)
+![QA Debug Overlay demo](https://github.com/ErikaDyendyeshy/qa_debug_overlay/raw/v1.2.0/doc/demo.gif)
 
 ## ✨ Features
 
@@ -26,15 +26,17 @@ they need: **cURL, request, response, auth token or a full bug report — in one
   | **Auth token** | The token from the `Authorization` header, without `Bearer` |
   | **Bug report** | Markdown for Jira, Slack or GitHub with cURL and both bodies |
 - **Copy any detail**: tap a header row to copy its value, or long-press any JSON node.
-- **Dio interceptor** with timings, errors, `FormData` and binary responses.
-- **Firebase helpers** for Cloud Functions and Firestore.
+- **Automatic logging** for **Dio** (`DebugInterceptor`) and **package:http**
+  (`DebugHttpClient`), with timings, errors, multipart/`FormData` and binary bodies.
+- **Firebase helpers** for Cloud Functions and Firestore. Error codes become
+  HTTP-like statuses, so `permission-denied` shows up as **403**, not as a generic 500.
 - The overlay has its own dark theme, so it looks the same in any app and never inherits your app's styles.
 
 ## 📦 Installation
 
 ```yaml
 dependencies:
-  qa_debug_overlay: ^1.1.2
+  qa_debug_overlay: ^1.2.0
 ```
 
 ## 🚀 Quick start
@@ -48,10 +50,15 @@ MaterialApp(
 );
 ```
 
-**2. Add the interceptor to Dio:**
+**2. Log your HTTP client:**
 
 ```dart
+// Dio
 final dio = Dio()..interceptors.add(DebugInterceptor());
+
+// package:http
+final client = DebugHttpClient(); // or DebugHttpClient(inner: yourClient)
+final response = await client.get(Uri.parse('https://api.example.com/users'));
 ```
 
 That's it! Tap the 🐞 button to see the logs.
@@ -73,6 +80,10 @@ MaterialApp(
 
 ### Firebase
 
+Wrap each call you want to see. Errors are logged with their Firebase code
+(`[permission-denied] …`) and a matching status: 400, 401, 403, 404, 409, 429,
+500, 503 or 504.
+
 ```dart
 final result = await FirebaseLogger.logCall(
   name: 'getUserData',
@@ -87,24 +98,19 @@ final doc = await FirebaseLogger.logRead(
 );
 ```
 
-### `http` or any other client
+### Any other client
 
 ```dart
 final stopwatch = Stopwatch()..start();
-final response = await http.get(uri, headers: headers);
+final result = await myClient.fetch(url);
 
 DebugOverlayController.instance.addLog(
   NetworkLog.create(
     method: 'GET',
-    endpoint: uri.toString(),
-    fullUrl: uri.toString(),
-    domain: '${uri.scheme}://${uri.host}',
-    path: uri.path,
-    statusCode: response.statusCode,
+    endpoint: url,
+    statusCode: result.status,
     duration: stopwatch.elapsed,
-    requestHeaders: headers,
-    responseHeaders: response.headers,
-    responseBody: response.body, // JSON strings are parsed automatically
+    responseBody: result.body, // JSON strings are parsed automatically
   ),
 );
 ```
@@ -144,7 +150,8 @@ The controller keeps the latest `DebugOverlayController.maxLogs` (100) requests.
 `MaterialApp.builder` (not in `home`), then do a hot restart.
 
 **The logs are empty.** Make sure `DebugInterceptor()` is added to the same `Dio`
-instance that makes the calls.
+instance that makes the calls, or that requests go through your `DebugHttpClient`.
+With `http`, the log appears once the response body has been read.
 
 > ⚠️ The overlay shows tokens and request bodies in plain text. Ship it only in
 > debug or QA builds.

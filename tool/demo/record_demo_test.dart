@@ -25,7 +25,7 @@ const _text = Color(0xFFE8EAF0);
 const _muted = Color(0xFF8B93A7);
 
 const _steps = [
-  ('Capture', 'Every Dio request is logged automatically'),
+  ('Capture', 'Dio and http requests are logged automatically'),
   ('Filter', 'Spot failed calls with 2xx / 4xx / 5xx filters'),
   ('Inspect', 'Headers, body and errors in a readable JSON tree'),
   ('Copy cURL', 'Hand the backend a ready-to-run command'),
@@ -281,7 +281,7 @@ class _Captions extends StatelessWidget {
                 border: Border.all(color: _accent.withValues(alpha: 0.4)),
               ),
               child: const Text(
-                'Flutter · Dio · Firebase',
+                'Dio · http · Firebase',
                 style: TextStyle(
                     color: _accent, fontSize: 13, fontWeight: FontWeight.w600),
               ),
