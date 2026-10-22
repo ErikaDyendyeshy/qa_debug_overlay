@@ -8,7 +8,7 @@ An in-app network inspector for Flutter, built for QA. See every request and res
 right on the device, find failed calls in a second, and send developers exactly what
 they need: **cURL, request, response, auth token or a full bug report — in one tap.**
 
-![QA Debug Overlay demo](https://github.com/ErikaDyendyeshy/qa_debug_overlay/raw/main/doc/demo.gif)
+![QA Debug Overlay demo](https://github.com/ErikaDyendyeshy/qa_debug_overlay/raw/v1.1.2/doc/demo.gif)
 
 ## ✨ Features
 
@@ -34,7 +34,7 @@ they need: **cURL, request, response, auth token or a full bug report — in one
 
 ```yaml
 dependencies:
-  qa_debug_overlay: ^1.1.1
+  qa_debug_overlay: ^1.1.2
 ```
 
 ## 🚀 Quick start

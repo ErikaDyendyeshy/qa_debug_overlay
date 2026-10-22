@@ -1,6 +1,6 @@
 name: qa_debug_overlay
 description: "In-app network inspector for QA: see requests & responses, filter, search and copy cURL, request, response or auth token in one tap."
-version: 1.1.1
+version: 1.1.2
 homepage: https://github.com/ErikaDyendyeshy/qa_debug_overlay
 repository: https://github.com/ErikaDyendyeshy/qa_debug_overlay
 issue_tracker: https://github.com/ErikaDyendyeshy/qa_debug_overlay/issues

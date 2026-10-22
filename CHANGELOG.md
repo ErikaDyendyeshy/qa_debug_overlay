@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2] - 2026-10-22
+
+### 📝 Docs
+- The README demo GIF is now pinned to the release tag, so pub.dev shows the
+  current GIF instead of an old cached copy.
+
 ## [1.1.1] - 2026-10-22
 
 Fixes found while testing on a real Android device.
