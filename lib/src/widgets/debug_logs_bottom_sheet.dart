@@ -1,500 +1,509 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import '../controller/debug_overlay_controller.dart';
-import 'json_tree_view.dart';
+import '../helpers/network_log_formatter.dart';
+import 'debug_components.dart';
+import 'debug_theme.dart';
+import 'log_detail_view.dart';
 
-/// A bottom sheet widget that displays network logs in a scrollable interface.
-///
-/// This widget provides a comprehensive view of HTTP requests and responses,
-/// including headers, body content, and error information. It features
-/// expandable log entries with detailed JSON visualization.
-class DebugLogsBottomSheet extends StatefulWidget {
+enum _LogFilter {
+  all('All'),
+  success('2xx'),
+  clientError('4xx'),
+  serverError('5xx'),
+  failed('Failed');
+
+  const _LogFilter(this.label);
+
+  final String label;
+
+  bool matches(NetworkLog log) => switch (this) {
+        _LogFilter.all => true,
+        _LogFilter.success => log.isSuccess,
+        _LogFilter.clientError => log.isClientError,
+        _LogFilter.serverError => log.isServerError,
+        _LogFilter.failed => log.isFailed,
+      };
+}
+
+/// Bottom sheet with the list of network logs, search, status filters and
+/// a detail view for each request.
+class DebugLogsBottomSheet extends StatelessWidget {
   /// Creates a new [DebugLogsBottomSheet].
   const DebugLogsBottomSheet({super.key});
 
   @override
-  State<DebugLogsBottomSheet> createState() => _DebugLogsBottomSheetState();
+  Widget build(BuildContext context) {
+    // The overlay lives above the app's Navigator, so it brings its own
+    // Overlay (needed by text fields and tooltips) and theme.
+    return Theme(
+      data: buildDebugTheme(),
+      child: const _OverlayHost(child: CopyToastScope(child: _SheetBody())),
+    );
+  }
 }
 
-class _DebugLogsBottomSheetState extends State<DebugLogsBottomSheet> {
+class _OverlayHost extends StatefulWidget {
+  final Widget child;
+
+  const _OverlayHost({required this.child});
+
+  @override
+  State<_OverlayHost> createState() => _OverlayHostState();
+}
+
+class _OverlayHostState extends State<_OverlayHost> {
+  late final OverlayEntry _entry = OverlayEntry(builder: (_) => widget.child);
+
+  @override
+  void didUpdateWidget(_OverlayHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.child != widget.child) _entry.markNeedsBuild();
+  }
+
+  @override
+  Widget build(BuildContext context) => Overlay(initialEntries: [_entry]);
+}
+
+class _SheetBody extends StatefulWidget {
+  const _SheetBody();
+
+  @override
+  State<_SheetBody> createState() => _SheetBodyState();
+}
+
+class _SheetBodyState extends State<_SheetBody> {
+  final _searchController = TextEditingController();
+  _LogFilter _filter = _LogFilter.all;
+  String? _selectedId;
+
+  DebugOverlayController get _controller => DebugOverlayController.instance;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
-      initialChildSize: 0.5,
-      minChildSize: 0.5,
-      maxChildSize: 0.9,
+      initialChildSize: 0.75,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
       expand: false,
+      snap: true,
+      snapSizes: const [0.75],
       builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            children: [
-              _buildHeader(context, scrollController),
-              Expanded(child: _buildLogsList(context, scrollController)),
-            ],
+        return Material(
+          color: DebugColors.background,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          clipBehavior: Clip.antiAlias,
+          child: ListenableBuilder(
+            listenable: _controller,
+            builder: (context, _) {
+              final logs = _controller.logs;
+              final selected = _selectedId == null
+                  ? null
+                  : logs.where((log) => log.id == _selectedId).firstOrNull;
+              return Column(
+                children: [
+                  const _DragHandle(),
+                  Expanded(
+                    child: selected != null
+                        ? LogDetailView(
+                            key: ValueKey(selected.id),
+                            log: selected,
+                            scrollController: scrollController,
+                            onBack: () => setState(() => _selectedId = null),
+                          )
+                        : _buildList(context, logs, scrollController),
+                  ),
+                ],
+              );
+            },
           ),
         );
       },
     );
   }
 
-  Widget _buildHeader(BuildContext context, ScrollController scrollController) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              const Text('🐞', style: TextStyle(fontSize: 20)),
-              const SizedBox(width: 8),
-              Text(
-                'Debug Logs',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-          Row(
-            children: [
-              TextButton(
-                onPressed: () {
-                  DebugOverlayController.instance.clearLogs();
-                },
-                child: Row(
-                  children: [
-                    Text('🗑️', style: TextStyle(fontSize: 16)),
-                    Text(
-                      'Clear',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: const Text('❌', style: TextStyle(fontSize: 20)),
-                onPressed: () {
-                  DebugOverlayController.instance.hideBottomSheet();
-                },
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLogsList(
+  Widget _buildList(
     BuildContext context,
+    List<NetworkLog> logs,
     ScrollController scrollController,
   ) {
-    return ListenableBuilder(
-      listenable: DebugOverlayController.instance,
-      builder: (context, _) {
-        final logs = DebugOverlayController.instance.logs;
+    final query = _searchController.text.trim().toLowerCase();
+    final visible = logs
+        .where(_filter.matches)
+        .where((log) =>
+            query.isEmpty ||
+            log.url.toLowerCase().contains(query) ||
+            log.method.toLowerCase().contains(query) ||
+            log.statusCode.toString().contains(query))
+        .toList();
 
-        if (logs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.inbox_outlined,
-                  size: 64,
-                  color: Theme.of(context).disabledColor,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'No network logs yet',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Theme.of(context).disabledColor,
+    return Column(
+      children: [
+        _buildHeader(logs),
+        _buildSearch(),
+        _buildFilters(logs),
+        const Divider(height: 1),
+        Expanded(
+          child: visible.isEmpty
+              ? _EmptyState(
+                  scrollController: scrollController,
+                  hasLogs: logs.isNotEmpty,
+                )
+              : ListView.separated(
+                  controller: scrollController,
+                  padding: EdgeInsets.fromLTRB(
+                    12,
+                    12,
+                    12,
+                    24 + MediaQuery.paddingOf(context).bottom,
+                  ),
+                  itemCount: visible.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) => _LogCard(
+                    log: visible[index],
+                    onTap: () =>
+                        setState(() => _selectedId = visible[index].id),
                   ),
                 ),
-              ],
-            ),
-          );
-        }
-
-        return ListView.separated(
-          controller: scrollController,
-          itemCount: logs.length,
-          separatorBuilder: (context, index) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final log = logs[index];
-            return _buildLogItem(context, log);
-          },
-        );
-      },
+        ),
+      ],
     );
   }
 
-  Widget _buildLogItem(BuildContext context, NetworkLog log) {
-    return SizedBox(
-      child: ExpansionTile(
-        maintainState: true,
-        tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-        title: _buildLogTitle(log),
-        subtitle: _buildLogSubtitle(context, log),
-        children: [_buildLogDetails(context, log)],
+  Widget _buildHeader(List<NetworkLog> logs) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 8, 4),
+      child: Row(
+        children: [
+          const Icon(Icons.bug_report_rounded,
+              color: DebugColors.accent, size: 22),
+          const SizedBox(width: 8),
+          const Text(
+            'Network',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: DebugColors.text,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: DebugColors.surfaceHigh,
+              borderRadius: BorderRadius.circular(100),
+            ),
+            child: Text(
+              '${logs.length}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: DebugColors.textMuted,
+              ),
+            ),
+          ),
+          const Spacer(),
+          DebugIconButton(
+            icon: Icons.delete_sweep_outlined,
+            tooltip: 'Clear logs',
+            onPressed: logs.isEmpty ? null : _controller.clearLogs,
+          ),
+          DebugIconButton(
+            icon: Icons.close_rounded,
+            tooltip: 'Close',
+            color: DebugColors.text,
+            onPressed: _controller.hideBottomSheet,
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildLogTitle(NetworkLog log) {
-    return Row(
-      children: [
-        _buildMethodBadge(context, log.method),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildSearch() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (_) => setState(() {}),
+        style: const TextStyle(fontSize: 14, color: DebugColors.text),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: 'Search URL, method or status',
+          hintStyle: const TextStyle(color: DebugColors.textFaint),
+          prefixIcon: const Icon(Icons.search_rounded, size: 20),
+          suffixIcon: _searchController.text.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  onPressed: () => setState(_searchController.clear),
+                ),
+          filled: true,
+          fillColor: DebugColors.surface,
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: DebugColors.border),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: DebugColors.border),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: DebugColors.accent),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilters(List<NetworkLog> logs) {
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        children: [
+          for (final filter in _LogFilter.values)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: _FilterChip(
+                label: filter.label,
+                count: logs.where(filter.matches).length,
+                selected: _filter == filter,
+                onTap: () => setState(() => _filter = filter),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DragHandle extends StatelessWidget {
+  const _DragHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 8),
+      child: Container(
+        width: 36,
+        height: 4,
+        decoration: BoxDecoration(
+          color: DebugColors.border,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = selected ? DebugColors.onAccent : DebugColors.textMuted;
+    return Material(
+      color: selected ? DebugColors.accent : DebugColors.surface,
+      shape: StadiumBorder(
+        side: BorderSide(
+            color: selected ? DebugColors.accent : DebugColors.border),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const StadiumBorder(),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              if (log.domain != null) _buildDomainText(log.domain!),
-              _buildPathText(log.path ?? log.endpoint),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? DebugColors.onAccent : DebugColors.text,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '$count',
+                style: TextStyle(color: foreground, fontSize: 12),
+              ),
             ],
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildDomainText(String domain) {
-    return Text(
-      domain,
-      style: const TextStyle(
-        fontWeight: FontWeight.bold,
-        fontSize: 12,
-        color: Colors.blue,
       ),
-      overflow: TextOverflow.ellipsis,
     );
   }
+}
 
-  Widget _buildPathText(String path) {
-    return Text(
-      path,
-      style: const TextStyle(fontWeight: FontWeight.w300, fontSize: 12),
-      overflow: TextOverflow.ellipsis,
+class _LogCard extends StatelessWidget {
+  final NetworkLog log;
+  final VoidCallback onTap;
+
+  const _LogCard({required this.log, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = DebugColors.forStatus(log);
+    final path = log.path?.isNotEmpty == true ? log.path! : log.endpoint;
+    final host = log.domain?.replaceFirst(RegExp(r'^https?://'), '');
+
+    return Material(
+      color: DebugColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: DebugColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: () => copyToClipboard(
+          context,
+          NetworkLogFormatter.toCurl(log),
+          label: 'cURL',
+        ),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(width: 3, color: statusColor),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          MethodBadge(method: log.method),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              path,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: DebugColors.text,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          StatusBadge(log: log),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      DefaultTextStyle.merge(
+                        style: const TextStyle(
+                            fontSize: 12, color: DebugColors.textMuted),
+                        child: Row(
+                          children: [
+                            if (host != null && host.isNotEmpty)
+                              Flexible(
+                                child: Text(host,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            if (log.queryParams?.isNotEmpty ?? false) ...[
+                              const SizedBox(width: 6),
+                              Text(
+                                '?${log.queryParams!.length}',
+                                style: const TextStyle(
+                                    color: DebugColors.textFaint),
+                              ),
+                            ],
+                            const Spacer(),
+                            if (log.duration != null) ...[
+                              Text(
+                                formatDuration(log.duration!),
+                                style: TextStyle(
+                                    color:
+                                        DebugColors.forDuration(log.duration!)),
+                              ),
+                              const SizedBox(width: 10),
+                            ],
+                            Text(formatTime(log.timestamp)),
+                          ],
+                        ),
+                      ),
+                      if (log.errorMessage != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          log.errorMessage!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 12, color: DebugColors.error),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
+}
 
-  Widget _buildLogSubtitle(BuildContext context, NetworkLog log) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+class _EmptyState extends StatelessWidget {
+  final ScrollController scrollController;
+  final bool hasLogs;
+
+  const _EmptyState({required this.scrollController, required this.hasLogs});
+
+  @override
+  Widget build(BuildContext context) {
+    // Scrollable so the sheet can still be dragged when empty.
+    return ListView(
+      controller: scrollController,
+      padding: const EdgeInsets.only(top: 64),
       children: [
-        const SizedBox(height: 4),
-        Row(
-          spacing: 8,
-          children: [
-            _buildStatusCodeBadge(context, log),
-            Text(_formatTimestamp(log.timestamp)),
-          ],
+        Icon(
+          hasLogs
+              ? Icons.filter_alt_off_outlined
+              : Icons.wifi_tethering_rounded,
+          size: 44,
+          color: DebugColors.textFaint,
         ),
-        if (log.queryParams != null && log.queryParams!.isNotEmpty)
-          _buildQueryParamsText(log.queryParams!),
-        if (log.duration != null) _buildDurationText(context, log.duration!),
-      ],
-    );
-  }
-
-  Widget _buildQueryParamsText(Map<String, dynamic> queryParams) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: Text(
-        'Query: ${queryParams.entries.map((e) => '${e.key}=${e.value}').join(', ')}',
-        style: const TextStyle(fontSize: 11, color: Colors.grey),
-        overflow: TextOverflow.ellipsis,
-      ),
-    );
-  }
-
-  Widget _buildDurationText(BuildContext context, Duration duration) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: Text(
-        'Duration: ${duration.inMilliseconds}ms',
-        style: TextStyle(
-          color: _getDurationColor(context, duration),
-          fontSize: 12,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusCodeBadge(BuildContext context, NetworkLog log) {
-    Color color;
-    if (log.isSuccess) {
-      color = Colors.green;
-    } else if (log.isClientError) {
-      color = Colors.orange;
-    } else if (log.isServerError) {
-      color = Colors.red;
-    } else {
-      color = Colors.grey;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        log.statusCode.toString(),
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMethodBadge(BuildContext context, String method) {
-    Color color;
-    switch (method.toUpperCase()) {
-      case 'GET':
-        color = Colors.blue;
-        break;
-      case 'POST':
-        color = Colors.green;
-        break;
-      case 'PUT':
-        color = Colors.orange;
-        break;
-      case 'DELETE':
-        color = Colors.red;
-        break;
-      default:
-        color = Colors.grey;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.2),
-        border: Border.all(color: color),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        method.toUpperCase(),
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.bold,
-          fontSize: 10,
-        ),
-      ),
-    );
-  }
-
-  String _formatTimestamp(DateTime timestamp) {
-    final now = DateTime.now();
-    final difference = now.difference(timestamp);
-
-    if (difference.inSeconds < 60) {
-      return '${difference.inSeconds}s ago';
-    } else if (difference.inMinutes < 60) {
-      return '${difference.inMinutes}m ago';
-    } else if (difference.inHours < 24) {
-      return '${difference.inHours}h ago';
-    } else {
-      return '${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
-    }
-  }
-
-  Color _getDurationColor(BuildContext context, Duration duration) {
-    if (duration.inMilliseconds < 500) {
-      return Colors.green;
-    } else if (duration.inMilliseconds < 1000) {
-      return Colors.orange;
-    } else {
-      return Colors.red;
-    }
-  }
-
-  Widget _buildLogDetails(BuildContext context, NetworkLog log) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (log.requestHeaders != null || log.requestBody != null) ...[
-            _buildDetailSection(
-              context,
-              'Request',
-              log.requestHeaders,
-              log.requestBody,
-            ),
-            const SizedBox(height: 16),
-          ],
-
-          if (log.responseHeaders != null || log.responseBody != null) ...[
-            _buildDetailSection(
-              context,
-              'Response',
-              log.responseHeaders,
-              log.responseBody,
-            ),
-            const SizedBox(height: 16),
-          ],
-
-          if (log.errorMessage != null) ...[
-            _buildDetailSection(context, 'Error', null, log.errorMessage),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetailSection(
-    BuildContext context,
-    String title,
-    Map<String, dynamic>? headers,
-    dynamic body,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+        const SizedBox(height: 12),
         Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: Theme.of(context).colorScheme.primary,
-          ),
+          hasLogs ? 'No requests match the filter' : 'Waiting for requests…',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 15, color: DebugColors.textMuted),
         ),
-        const SizedBox(height: 8),
-
-        if (headers != null && headers.isNotEmpty) ...[
-          Text(
-            'Headers:',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          Container(
-            width: double.infinity,
-            constraints: const BoxConstraints(minHeight: 150, maxHeight: 300),
-            decoration: BoxDecoration(
-              color: Colors.grey[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey[300]!),
-            ),
-            child: _buildJsonViewer(context, headers),
-          ),
-          const SizedBox(height: 8),
-        ],
-
-        if (body != null) ...[
-          Text(
-            'Body:',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          Container(
-            width: double.infinity,
-            constraints: const BoxConstraints(minHeight: 200, maxHeight: 500),
-            decoration: BoxDecoration(
-              color: Colors.grey[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey[300]!),
-            ),
-            child: _buildJsonViewer(context, body),
-          ),
-        ],
+        const SizedBox(height: 4),
+        Text(
+          hasLogs
+              ? 'Try another filter or search query'
+              : 'Network calls made by the app will show up here',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 13, color: DebugColors.textFaint),
+        ),
       ],
-    );
-  }
-
-  /// Builds a JSON viewer widget that handles different data types consistently.
-  ///
-  /// This method automatically detects and parses JSON strings, displays
-  /// structured data with syntax highlighting, and provides fallback
-  /// rendering for non-JSON content.
-  Widget _buildJsonViewer(BuildContext context, dynamic data) {
-    if (data == null) {
-      return _buildNullViewer();
-    }
-
-    final jsonData = _parseJsonData(data);
-    if (jsonData is Map || jsonData is List) {
-      return _buildStructuredJsonViewer(jsonData);
-    }
-
-    return _buildFallbackViewer(data);
-  }
-
-  Widget _buildNullViewer() {
-    return const Padding(
-      padding: EdgeInsets.all(8),
-      child: Text(
-        'null',
-        style: TextStyle(
-          color: Colors.grey,
-          fontStyle: FontStyle.italic,
-          fontSize: 11,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStructuredJsonViewer(dynamic jsonData) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(8),
-      child: _buildConsistentJsonView(jsonData),
-    );
-  }
-
-  Widget _buildFallbackViewer(dynamic data) {
-    return Padding(
-      padding: const EdgeInsets.all(8),
-      child: Text(
-        data.toString(),
-        style: const TextStyle(
-          fontFamily: 'monospace',
-          color: Colors.black87,
-          fontSize: 11,
-        ),
-      ),
-    );
-  }
-
-  /// Parses JSON data from various input types.
-  ///
-  /// Handles string inputs that look like JSON by attempting to parse them,
-  /// while preserving other data types as-is.
-  dynamic _parseJsonData(dynamic data) {
-    if (data is String) {
-      if (_looksLikeJson(data)) {
-        try {
-          return jsonDecode(data);
-        } catch (e) {
-          return data;
-        }
-      }
-    }
-    return data;
-  }
-
-  /// Determines if a string looks like JSON based on its structure.
-  bool _looksLikeJson(String data) {
-    final trimmed = data.trim();
-    return trimmed.startsWith('{') || trimmed.startsWith('[');
-  }
-
-  Widget _buildConsistentJsonView(dynamic data) {
-    return SizedBox(
-      width: double.infinity,
-      child: JsonTreeView(data: data),
     );
   }
 }

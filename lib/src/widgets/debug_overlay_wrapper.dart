@@ -19,10 +19,16 @@ import 'debug_logs_bottom_sheet.dart';
 class DebugOverlayWrapper extends StatelessWidget {
   final Widget child;
 
-  const DebugOverlayWrapper({super.key, required this.child});
+  /// Set to false to render only [child] (e.g. in release builds).
+  final bool enabled;
+
+  const DebugOverlayWrapper(
+      {super.key, required this.child, this.enabled = true});
 
   @override
   Widget build(BuildContext context) {
+    if (!enabled) return child;
+
     return ListenableBuilder(
       listenable: DebugOverlayController.instance,
       builder: (context, _) {
@@ -31,24 +37,31 @@ class DebugOverlayWrapper extends StatelessWidget {
         return Stack(
           children: [
             child,
-
-            if (controller.isOverlayVisible) const DraggableDebugButton(),
-
-            // Bottom sheet overlay
+            if (controller.isOverlayVisible && !controller.isBottomSheetVisible)
+              const DraggableDebugButton(),
             if (controller.isBottomSheetVisible)
               Positioned.fill(
-                child: Material(
-                  color: Colors.black54,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: () {
-                      controller.hideBottomSheet();
-                    },
-                    child: GestureDetector(
-                      onTap: () {}, // Prevent tap from propagating
-                      child: const DebugLogsBottomSheet(),
-                    ),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: 1),
+                  duration: const Duration(milliseconds: 280),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, t, sheet) => Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: controller.hideBottomSheet,
+                        child: ColoredBox(
+                          color: Colors.black.withValues(alpha: 0.55 * t),
+                        ),
+                      ),
+                      FractionalTranslation(
+                        translation: Offset(0, (1 - t) * 0.3),
+                        child: Opacity(opacity: t, child: sheet),
+                      ),
+                    ],
                   ),
+                  child: const DebugLogsBottomSheet(),
                 ),
               ),
           ],

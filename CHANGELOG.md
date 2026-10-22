@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-10-22
+
+### ✨ New
+- **Copy actions** in request details: cURL, URL, Request, Response, Auth token
+  (from the `Authorization` header, without `Bearer`) and a Markdown **Bug report**.
+- Tap a header row to copy its value, or long-press any JSON node to copy it.
+- **Search** by URL, method or status, plus `2xx` / `4xx` / `5xx` / **Failed** filters with counts.
+- `NetworkLogFormatter`: a public API for cURL, request/response text and bug reports.
+- `NetworkLog.isFailed`, `isRedirect`, `url`, `authorizationHeader` and `authToken`.
+- `DebugOverlayWrapper(enabled: ...)` to turn the overlay off in release builds.
+- `DebugInterceptor(controller: ...)` parameter.
+
+### 🎨 Redesign
+- A new dark UI that doesn't depend on the host app's theme: request cards, status
+  pills, tabbed details (Overview, Request and Response) and a "copied" toast.
+- The floating button shows the request count, turns red on failures and snaps to the screen edge.
+- A rewritten JSON viewer: a proper collapsible tree (no more duplicated brackets)
+  and a raw view with syntax highlighting that you can select.
+- A new demo GIF and a pub.dev screenshot.
+
+### 🐛 Fixes
+- `DebugInterceptor` now records the error message for failed requests and status `0`
+  for connection errors.
+- `FormData` and binary (`ResponseType.bytes`) bodies are summarized instead of
+  dumped. The `Content-Type` that Dio sends is shown.
+- Log ids are unique even when requests finish within the same millisecond.
+- `DebugOverlayController.logs` is now read-only from outside.
+- The text field and tooltips work inside the overlay, which now has its own `Overlay`.
+
+### 🔧 Maintenance
+- Requires Dart `^3.6.0` and Flutter `>=3.27.0`. Upgraded to `flutter_lints` 6.
+- Added tests for the interceptor, the formatter and the widgets (39 tests).
+- Fixed a crash in the example app on short responses.
+
 ## [1.0.1] - 2025-01-28
 
 ### 🐛 Bug Fixes

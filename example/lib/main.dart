@@ -52,6 +52,8 @@ class _HomePageState extends State<HomePage> {
       headers: {
         'User-Agent': 'Flutter Debug Overlay Demo',
         'Accept': 'application/json',
+        // Fake token so the "Auth token" copy action has something to copy.
+        'Authorization': 'Bearer demo-token-123',
       },
     ));
 
@@ -145,6 +147,12 @@ class _HomePageState extends State<HomePage> {
               () => _makeRequest('GET', '/posts/999999'),
               Colors.red[800]!,
             ),
+            const SizedBox(height: 8),
+            _buildRequestButton(
+              'Network Error Test',
+              () => _makeRequest('GET', 'https://nonexistent.invalid/ping'),
+              Colors.blueGrey,
+            ),
             const SizedBox(height: 32),
             if (_isLoading)
               const Center(child: CircularProgressIndicator())
@@ -218,10 +226,11 @@ class _HomePageState extends State<HomePage> {
           throw Exception('Unsupported method: $method');
       }
 
+      final preview = response.data.toString();
       setState(() {
         _result = 'Status: ${response.statusCode}\n'
             'URL: ${response.requestOptions.uri}\n'
-            'Data: ${response.data.toString().substring(0, 150)}...';
+            'Data: ${preview.length > 150 ? '${preview.substring(0, 150)}...' : preview}';
       });
     } catch (e) {
       setState(() {

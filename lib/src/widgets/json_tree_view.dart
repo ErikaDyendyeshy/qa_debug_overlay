@@ -1,141 +1,178 @@
 import 'package:flutter/material.dart';
 
-/// A custom JSON tree view widget that provides consistent rendering
-/// of JSON data with syntax highlighting and expandable nodes.
+import '../helpers/network_log_formatter.dart';
+import 'debug_components.dart';
+import 'debug_theme.dart';
+
+/// Collapsible JSON tree with syntax colors.
 ///
-/// This widget handles nested JSON structures by recursively rendering
-/// objects and arrays with proper indentation and color coding for
-/// different data types (strings, numbers, booleans, etc.).
-class JsonTreeView extends StatefulWidget {
+/// Tap an object/array to fold it, long-press any row to copy its value.
+class JsonTreeView extends StatelessWidget {
   /// The JSON data to display.
   final dynamic data;
-  
-  /// The current nesting level for indentation.
-  final int level;
 
-  /// Creates a new [JsonTreeView].
+  /// Nodes deeper than this start collapsed.
+  final int initiallyExpandedDepth;
+
   const JsonTreeView({
     super.key,
     required this.data,
-    this.level = 0,
+    this.initiallyExpandedDepth = 3,
   });
 
   @override
-  State<JsonTreeView> createState() => _JsonTreeViewState();
+  Widget build(BuildContext context) {
+    return _JsonNode(
+      nodeKey: null,
+      value: data,
+      depth: 0,
+      isLast: true,
+      initiallyExpandedDepth: initiallyExpandedDepth,
+    );
+  }
 }
 
-class _JsonTreeViewState extends State<JsonTreeView> {
-  bool _isExpanded = true;
+class _JsonNode extends StatefulWidget {
+  final Object? nodeKey;
+  final dynamic value;
+  final int depth;
+  final bool isLast;
+  final int initiallyExpandedDepth;
+
+  const _JsonNode({
+    required this.nodeKey,
+    required this.value,
+    required this.depth,
+    required this.isLast,
+    required this.initiallyExpandedDepth,
+  });
+
+  @override
+  State<_JsonNode> createState() => _JsonNodeState();
+}
+
+class _JsonNodeState extends State<_JsonNode> {
+  late bool _expanded = widget.depth < widget.initiallyExpandedDepth;
+
+  static const _indent = 14.0;
+
+  bool get _isContainer => widget.value is Map || widget.value is List;
 
   @override
   Widget build(BuildContext context) {
-    return _buildJsonNode(widget.data, widget.level);
-  }
+    final value = widget.value;
+    final comma = widget.isLast ? '' : ',';
 
-  /// Builds the appropriate node type based on the data structure.
-  Widget _buildJsonNode(dynamic data, int level) {
-    if (data is Map) {
-      return _buildMapNode(data, level);
-    } else if (data is List) {
-      return _buildListNode(data, level);
-    } else {
-      return _buildValueNode(data, level);
+    if (!_isContainer) {
+      return _row(
+        context,
+        children: [
+          ..._keySpans(),
+          _valueSpan(value),
+          _punct(comma),
+        ],
+      );
     }
-  }
 
-  Widget _buildMapNode(Map data, int level) {
-    final indent = '  ' * level;
-    final entries = data.entries.toList();
+    final isMap = value is Map;
+    final open = isMap ? '{' : '[';
+    final close = isMap ? '}' : ']';
+    final List<MapEntry<dynamic, dynamic>> entries = value is Map
+        ? value.entries.toList()
+        : (value as List).asMap().entries.toList();
+
+    if (entries.isEmpty) {
+      return _row(context,
+          children: [..._keySpans(), _punct('$open$close$comma')]);
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildExpandableLine('$indent{', _isExpanded, () => _toggleExpansion()),
-        if (_isExpanded) ...[
-          for (int i = 0; i < entries.length; i++) ...[
-            _buildKeyValueLine(
-              indent: '$indent  ',
-              key: entries[i].key,
-              value: entries[i].value,
-              hasComma: i < entries.length - 1,
-            ),
-            if (entries[i].value is Map || entries[i].value is List) ...[
-              Padding(
-                padding: EdgeInsets.only(left: (level + 2) * 8.0),
-                child: JsonTreeView(data: entries[i].value, level: level + 1),
+        _row(
+          context,
+          chevron: true,
+          onTap: () => setState(() => _expanded = !_expanded),
+          children: [
+            ..._keySpans(),
+            _punct(open),
+            if (!_expanded) ...[
+              TextSpan(
+                text: ' ${entries.length} ${isMap ? 'keys' : 'items'} ',
+                style: DebugTextStyles.mono.copyWith(
+                  color: DebugColors.textFaint,
+                  fontStyle: FontStyle.italic,
+                ),
               ),
+              _punct('$close$comma'),
             ],
           ],
-          _buildLine('$indent}'),
-        ] else
-          _buildLine('$indent...}'),
+        ),
+        if (_expanded) ...[
+          Container(
+            margin: const EdgeInsets.only(left: 7),
+            padding: const EdgeInsets.only(left: _indent - 7),
+            decoration: const BoxDecoration(
+              border: Border(left: BorderSide(color: DebugColors.border)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < entries.length; i++)
+                  _JsonNode(
+                    nodeKey: isMap ? entries[i].key : null,
+                    value: entries[i].value,
+                    depth: widget.depth + 1,
+                    isLast: i == entries.length - 1,
+                    initiallyExpandedDepth: widget.initiallyExpandedDepth,
+                  ),
+              ],
+            ),
+          ),
+          _row(context, children: [_punct('$close$comma')]),
+        ],
       ],
     );
   }
 
-  Widget _buildListNode(List data, int level) {
-    final indent = '  ' * level;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildExpandableLine('$indent[', _isExpanded, () => _toggleExpansion()),
-        if (_isExpanded) ...[
-          for (int i = 0; i < data.length; i++) ...[
-            if (data[i] is Map || data[i] is List) ...[
-              Padding(
-                padding: EdgeInsets.only(left: (level + 2) * 8.0),
-                child: JsonTreeView(data: data[i], level: level + 1),
-              ),
-            ] else
-              _buildLine(
-                '$indent  ${_formatValue(data[i])}${i < data.length - 1 ? ',' : ''}',
-              ),
-          ],
-          _buildLine('$indent]'),
-        ] else
-          _buildLine('$indent...]'),
-      ],
-    );
-  }
-
-  Widget _buildValueNode(dynamic data, int level) {
-    final indent = '  ' * level;
-    return _buildLine('$indent${_formatValue(data)}');
-  }
-
-  Widget _buildExpandableLine(
-    String content,
-    bool isExpanded,
-    VoidCallback onTap,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
-      child: GestureDetector(
-        onTap: onTap,
+  Widget _row(
+    BuildContext context, {
+    required List<InlineSpan> children,
+    bool chevron = false,
+    VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      onLongPress: () => copyToClipboard(
+        context,
+        NetworkLogFormatter.prettyJson(widget.value),
+        label: widget.nodeKey != null ? '"${widget.nodeKey}"' : 'Value',
+      ),
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 1),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              isExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
-              size: 16,
-              color: Colors.grey[700],
+            SizedBox(
+              width: 14,
+              height: 17,
+              child: chevron
+                  ? Icon(
+                      _expanded
+                          ? Icons.keyboard_arrow_down_rounded
+                          : Icons.keyboard_arrow_right_rounded,
+                      size: 14,
+                      color: DebugColors.textMuted,
+                    )
+                  : null,
             ),
-            const SizedBox(width: 4),
             Flexible(
-              child: RichText(
-                text: TextSpan(
-                  children: _parseJsonLine(content),
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    height: 1.4,
-                  ),
-                ),
-              ),
+              child: Text.rich(
+                  TextSpan(children: children, style: DebugTextStyles.mono)),
             ),
           ],
         ),
@@ -143,192 +180,98 @@ class _JsonTreeViewState extends State<JsonTreeView> {
     );
   }
 
-  Widget _buildKeyValueLine({
-    required String indent,
-    required dynamic key,
-    required dynamic value,
-    required bool hasComma,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
-      child: RichText(
-        text: TextSpan(
-          children: [
-            TextSpan(
-              text: indent,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 11,
-                color: Colors.black87,
-              ),
-            ),
-            TextSpan(
-              text: '"$key": ',
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 11,
-                color: Colors.purple,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (value is Map || value is List) ...[
-              TextSpan(
-                text: '{',
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                  color: Colors.black87,
-                ),
-              ),
-            ] else ...[
-              TextSpan(
-                text: _formatValue(value),
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                  color: _getColorForValue(value),
-                ),
-              ),
-            ],
-            if (hasComma) ...[
-              TextSpan(
-                text: ',',
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                  color: Colors.black87,
-                ),
-              ),
-            ],
-          ],
-        ),
+  List<InlineSpan> _keySpans() {
+    final key = widget.nodeKey;
+    if (key == null) return const [];
+    return [
+      TextSpan(
+        text: '"$key"',
+        style: DebugTextStyles.mono.copyWith(color: DebugColors.jsonKey),
       ),
-    );
+      _punct(': '),
+    ];
   }
 
-  Widget _buildLine(String content) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
-      child: RichText(
-        text: TextSpan(
-          children: _parseJsonLine(content),
-          style: const TextStyle(
-            fontFamily: 'monospace',
-            fontSize: 11,
-            height: 1.4,
-          ),
-        ),
-      ),
-    );
+  static TextSpan _punct(String text) => TextSpan(
+        text: text,
+        style:
+            DebugTextStyles.mono.copyWith(color: DebugColors.jsonPunctuation),
+      );
+
+  static TextSpan _valueSpan(dynamic value) {
+    final String text;
+    final Color color;
+    if (value is String) {
+      text = '"$value"';
+      color = DebugColors.jsonString;
+    } else if (value is num) {
+      text = '$value';
+      color = DebugColors.jsonNumber;
+    } else if (value is bool) {
+      text = '$value';
+      color = DebugColors.jsonBool;
+    } else if (value == null) {
+      text = 'null';
+      color = DebugColors.jsonNull;
+    } else {
+      text = '$value';
+      color = DebugColors.text;
+    }
+    return TextSpan(
+        text: text, style: DebugTextStyles.mono.copyWith(color: color));
   }
+}
 
-  List<TextSpan> _parseJsonLine(String content) {
-    final List<TextSpan> spans = [];
-    final RegExp jsonPattern = RegExp(
-      r'("[^"]*"|\d+\.?\d*|true|false|null|\{|\}|\[|\]|,|:)',
-    );
-
-    int lastIndex = 0;
-    for (final Match match in jsonPattern.allMatches(content)) {
-      // Add text before the match
-      if (match.start > lastIndex) {
-        spans.add(
-          TextSpan(
-            text: content.substring(lastIndex, match.start),
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 11,
-              color: Colors.black87,
-            ),
-          ),
-        );
+/// Syntax-highlights already pretty-printed JSON text.
+TextSpan highlightJson(String source) {
+  final pattern = RegExp(
+    r'("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false)\b|\b(null)\b',
+  );
+  final spans = <TextSpan>[];
+  var last = 0;
+  for (final match in pattern.allMatches(source)) {
+    if (match.start > last) {
+      spans.add(TextSpan(
+        text: source.substring(last, match.start),
+        style: const TextStyle(color: DebugColors.jsonPunctuation),
+      ));
+    }
+    if (match.group(1) != null) {
+      final isKey = match.group(2) != null;
+      spans.add(TextSpan(
+        text: match.group(1),
+        style: TextStyle(
+            color: isKey ? DebugColors.jsonKey : DebugColors.jsonString),
+      ));
+      if (isKey) {
+        spans.add(TextSpan(
+          text: match.group(2),
+          style: const TextStyle(color: DebugColors.jsonPunctuation),
+        ));
       }
-
-      // Add the matched text with appropriate color
-      final String matchedText = match.group(0)!;
-      spans.add(
-        TextSpan(
-          text: matchedText,
-          style: TextStyle(
-            fontFamily: 'monospace',
-            fontSize: 11,
-            color: _getColorForJsonToken(matchedText),
-          ),
-        ),
-      );
-
-      lastIndex = match.end;
+    } else if (match.group(3) != null) {
+      spans.add(TextSpan(
+        text: match.group(3),
+        style: const TextStyle(color: DebugColors.jsonNumber),
+      ));
+    } else if (match.group(4) != null) {
+      spans.add(TextSpan(
+        text: match.group(4),
+        style: const TextStyle(color: DebugColors.jsonBool),
+      ));
+    } else {
+      spans.add(TextSpan(
+        text: match.group(5),
+        style: const TextStyle(color: DebugColors.jsonNull),
+      ));
     }
-
-    // Add remaining text
-    if (lastIndex < content.length) {
-      spans.add(
-        TextSpan(
-          text: content.substring(lastIndex),
-          style: const TextStyle(
-            fontFamily: 'monospace',
-            fontSize: 11,
-            color: Colors.black87,
-          ),
-        ),
-      );
-    }
-
-    return spans;
+    last = match.end;
   }
-
-  /// Returns the appropriate color for JSON syntax tokens.
-  Color _getColorForJsonToken(String token) {
-    if (token.startsWith('"') && token.endsWith('"')) {
-      return Colors.green; // Strings
-    } else if (RegExp(r'^\d+\.?\d*$').hasMatch(token)) {
-      return Colors.blue; // Numbers
-    } else if (token == 'true' || token == 'false') {
-      return Colors.orange; // Booleans
-    } else if (token == 'null') {
-      return Colors.grey; // Null
-    } else if (token == '{' || token == '}') {
-      return Colors.purple; // Objects
-    } else if (token == '[' || token == ']') {
-      return Colors.indigo; // Arrays
-    } else if (token == ',') {
-      return Colors.grey[600]!; // Commas
-    } else if (token == ':') {
-      return Colors.grey[600]!; // Colons
-    }
-    return Colors.black87;
+  if (last < source.length) {
+    spans.add(TextSpan(
+      text: source.substring(last),
+      style: const TextStyle(color: DebugColors.jsonPunctuation),
+    ));
   }
-
-  /// Returns the appropriate color for different data types.
-  Color _getColorForValue(dynamic value) {
-    if (value is String) {
-      return Colors.green;
-    } else if (value is num) {
-      return Colors.blue;
-    } else if (value is bool) {
-      return Colors.orange;
-    } else if (value == null) {
-      return Colors.grey;
-    }
-    return Colors.black87;
-  }
-
-  String _formatValue(dynamic value) {
-    if (value is String) {
-      return '"$value"';
-    } else if (value is num) {
-      return value.toString();
-    } else if (value is bool) {
-      return value.toString();
-    } else if (value == null) {
-      return 'null';
-    }
-    return value.toString();
-  }
-
-  void _toggleExpansion() {
-    setState(() {
-      _isExpanded = !_isExpanded;
-    });
-  }
+  return TextSpan(style: DebugTextStyles.mono, children: spans);
 }

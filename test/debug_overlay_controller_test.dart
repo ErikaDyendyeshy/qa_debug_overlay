@@ -6,7 +6,7 @@ void main() {
 
   setUp(() {
     controller = DebugOverlayController.instance;
-    controller.reset(); // Clean state before each test
+    controller.reset();
   });
 
   group('DebugOverlayController', () {
@@ -62,7 +62,6 @@ void main() {
     });
 
     test('should limit logs to maxLogs', () {
-      // Add more than max logs
       for (int i = 0; i < 150; i++) {
         controller.addLog(NetworkLog.create(
           method: 'GET',
@@ -74,11 +73,37 @@ void main() {
       expect(controller.logs.length, DebugOverlayController.maxLogs);
     });
 
+    test('should keep newest logs first', () {
+      controller.addLog(NetworkLog.create(
+          method: 'GET', endpoint: '/first', statusCode: 200));
+      controller.addLog(NetworkLog.create(
+          method: 'GET', endpoint: '/second', statusCode: 200));
+
+      expect(controller.logs.map((log) => log.endpoint), ['/second', '/first']);
+    });
+
+    test('should not allow modifying logs from outside', () {
+      expect(
+        () => controller.logs.add(
+          NetworkLog.create(method: 'GET', endpoint: '/x', statusCode: 200),
+        ),
+        throwsUnsupportedError,
+      );
+    });
+
+    test('hiding the overlay also hides the bottom sheet', () {
+      controller.showBottomSheet();
+      controller.setOverlayVisible(false);
+
+      expect(controller.isOverlayVisible, isFalse);
+      expect(controller.isBottomSheetVisible, isFalse);
+    });
+
     test('should notify listeners on changes', () {
       var notified = false;
-      controller.addListener(() {
-        notified = true;
-      });
+      void listener() => notified = true;
+      controller.addListener(listener);
+      addTearDown(() => controller.removeListener(listener));
 
       controller.addLog(NetworkLog.create(
         method: 'GET',
@@ -123,7 +148,51 @@ void main() {
       expect(log.isClientError, isFalse);
       expect(log.isServerError, isTrue);
     });
+
+    test('should give unique ids to logs created at the same time', () {
+      final ids = {
+        for (var i = 0; i < 50; i++)
+          NetworkLog.create(method: 'GET', endpoint: '/t', statusCode: 200).id,
+      };
+      expect(ids, hasLength(50));
+    });
+
+    test('isFailed covers HTTP errors, no response and error messages', () {
+      NetworkLog log(int status, [String? error]) => NetworkLog.create(
+            method: 'GET',
+            endpoint: '/t',
+            statusCode: status,
+            errorMessage: error,
+          );
+
+      expect(log(200).isFailed, isFalse);
+      expect(log(302).isFailed, isFalse);
+      expect(log(404).isFailed, isTrue);
+      expect(log(503).isFailed, isTrue);
+      expect(log(0).isFailed, isTrue);
+      expect(log(200, 'parse error').isFailed, isTrue);
+    });
+
+    test('extracts the auth token from the Authorization header', () {
+      NetworkLog withAuth(Map<String, dynamic>? headers) => NetworkLog.create(
+            method: 'GET',
+            endpoint: '/t',
+            statusCode: 200,
+            requestHeaders: headers,
+          );
+
+      expect(
+          withAuth({'Authorization': 'Bearer abc.def'}).authToken, 'abc.def');
+      expect(withAuth({'authorization': 'bearer xyz'}).authToken, 'xyz');
+      expect(
+          withAuth({'Authorization': 'Basic dXNlcg=='}).authToken, 'dXNlcg==');
+      expect(withAuth({'Authorization': 'raw-token'}).authToken, 'raw-token');
+      expect(
+        withAuth({'Authorization': 'Bearer abc'}).authorizationHeader,
+        'Bearer abc',
+      );
+      expect(withAuth({'Accept': '*/*'}).authToken, isNull);
+      expect(withAuth(null).authToken, isNull);
+    });
   });
 }
-
-

@@ -1,13 +1,14 @@
 import 'dart:convert';
+
 import 'package:dio/dio.dart';
+
 import '../controller/debug_overlay_controller.dart';
 
 /// A Dio interceptor that captures all network requests and responses for debugging purposes.
 ///
 /// This interceptor automatically logs all HTTP traffic to the debug overlay,
 /// including request/response headers, body content, timing information,
-/// and error details. It's designed to provide comprehensive network
-/// debugging capabilities for Flutter applications.
+/// and error details.
 ///
 /// ## Usage
 ///
@@ -16,109 +17,131 @@ import '../controller/debug_overlay_controller.dart';
 /// dio.interceptors.add(DebugInterceptor());
 /// ```
 class DebugInterceptor extends Interceptor {
-  final Map<RequestOptions, DateTime> _requestTimestamps = {};
+  static const _startTimeKey = 'qa_debug_overlay_start_time';
+
+  /// Creates a new [DebugInterceptor]. Logs go to [controller], which
+  /// defaults to [DebugOverlayController.instance].
+  DebugInterceptor({DebugOverlayController? controller})
+      : _controller = controller ?? DebugOverlayController.instance;
+
+  final DebugOverlayController _controller;
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    _requestTimestamps[options] = DateTime.now();
+    options.extra[_startTimeKey] = DateTime.now();
     handler.next(options);
   }
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
-    final startTime = _requestTimestamps[response.requestOptions];
-    final duration = startTime != null 
-        ? DateTime.now().difference(startTime).inMilliseconds 
-        : 0;
-
-    final uri = response.requestOptions.uri;
-    final log = NetworkLog.create(
-      method: response.requestOptions.method,
-      endpoint: uri.toString(),
-      fullUrl: uri.toString(),
-      domain: '${uri.scheme}://${uri.host}',
-      path: uri.path,
-      queryParams: uri.queryParameters.isNotEmpty ? uri.queryParameters : null,
-      statusCode: response.statusCode ?? 0,
-      requestHeaders: response.requestOptions.headers,
-      requestBody: response.requestOptions.data,
-      responseHeaders: _convertHeadersToStringMap(response.headers.map),
-      responseBody: _processResponseBody(response.data),
-      duration: Duration(milliseconds: duration),
+    _controller.addLog(
+      _buildLog(response.requestOptions, response: response),
     );
-
-    DebugOverlayController.instance.addLog(log);
-    _requestTimestamps.remove(response.requestOptions);
     handler.next(response);
   }
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    final startTime = _requestTimestamps[err.requestOptions];
-    final duration = startTime != null 
-        ? DateTime.now().difference(startTime).inMilliseconds 
-        : 0;
-
-    final uri = err.requestOptions.uri;
-    final log = NetworkLog.create(
-      method: err.requestOptions.method,
-      endpoint: uri.toString(),
-      fullUrl: uri.toString(),
-      domain: '${uri.scheme}://${uri.host}',
-      path: uri.path,
-      queryParams: uri.queryParameters.isNotEmpty ? uri.queryParameters : null,
-      statusCode: err.response?.statusCode ?? 0,
-      requestHeaders: err.requestOptions.headers,
-      requestBody: err.requestOptions.data,
-      responseHeaders: err.response?.headers.map != null 
-          ? _convertHeadersToStringMap(err.response!.headers.map) 
-          : null,
-      responseBody: err.response?.data != null 
-          ? _processResponseBody(err.response!.data) 
-          : null,
-      duration: Duration(milliseconds: duration),
+    _controller.addLog(
+      _buildLog(
+        err.requestOptions,
+        response: err.response,
+        errorMessage: _describeError(err),
+      ),
     );
-
-    DebugOverlayController.instance.addLog(log);
-    _requestTimestamps.remove(err.requestOptions);
     handler.next(err);
   }
 
-  /// Converts Dio headers from Map<String, List<String>> to Map<String, dynamic>
-  /// for better JSON display in the debug overlay
-  Map<String, dynamic> _convertHeadersToStringMap(Map<String, List<String>> headers) {
-    final Map<String, dynamic> result = {};
-    headers.forEach((key, values) {
-      if (values.length == 1) {
-        result[key] = values.first;
-      } else {
-        result[key] = values;
-      }
-    });
-    return result;
+  NetworkLog _buildLog(
+    RequestOptions options, {
+    Response? response,
+    String? errorMessage,
+  }) {
+    final startTime = options.extra[_startTimeKey];
+    final duration = startTime is DateTime
+        ? DateTime.now().difference(startTime)
+        : Duration.zero;
+    final uri = options.uri;
+
+    return NetworkLog.create(
+      method: options.method,
+      endpoint: uri.toString(),
+      fullUrl: uri.toString(),
+      domain: '${uri.scheme}://${uri.authority}',
+      path: uri.path,
+      queryParams: uri.queryParameters.isNotEmpty ? uri.queryParameters : null,
+      statusCode: response?.statusCode ?? 0,
+      requestHeaders: _requestHeaders(options),
+      requestBody: _processBody(options.data),
+      responseHeaders: response != null
+          ? _convertHeadersToStringMap(response.headers.map)
+          : null,
+      responseBody: _processBody(response?.data),
+      duration: duration,
+      errorMessage: errorMessage,
+    );
   }
 
-  /// Processes response body to ensure proper JSON display
-  /// Handles Dio's response data format and converts it to a displayable format
-  dynamic _processResponseBody(dynamic data) {
-    if (data == null) return null;
-    
-    // If it's already a Map or List, return as-is
-    if (data is Map || data is List) {
-      return data;
+  /// Request headers including the content type Dio sends separately.
+  Map<String, dynamic> _requestHeaders(RequestOptions options) {
+    final headers = Map<String, dynamic>.of(options.headers);
+    final hasContentType = headers.keys
+        .any((key) => key.toLowerCase() == Headers.contentTypeHeader);
+    if (!hasContentType &&
+        options.contentType != null &&
+        options.data != null) {
+      headers[Headers.contentTypeHeader] = options.contentType;
     }
-    
-    // If it's a string, try to parse as JSON
+    return headers;
+  }
+
+  String _describeError(DioException err) {
+    final message = err.message ?? err.error?.toString();
+    final type = err.type.name;
+    return message != null && message.isNotEmpty
+        ? '[$type] $message'
+        : '[$type]';
+  }
+
+  /// Converts headers from `Map<String, List<String>>` to `Map<String, dynamic>`
+  /// for better JSON display in the debug overlay.
+  Map<String, dynamic> _convertHeadersToStringMap(
+    Map<String, List<String>> headers,
+  ) {
+    return headers.map(
+      (key, values) =>
+          MapEntry(key, values.length == 1 ? values.first : values),
+    );
+  }
+
+  /// Converts request/response data to something the JSON viewer can show.
+  dynamic _processBody(dynamic data) {
+    if (data == null) return null;
+
+    // ResponseType.bytes gives List<int>; decoded JSON arrays are List<dynamic>.
+    if (data is List<int>) return '<binary ${data.length} bytes>';
+
+    if (data is Map || data is List) return data;
+
+    if (data is FormData) {
+      return {
+        for (final field in data.fields) field.key: field.value,
+        for (final file in data.files)
+          file.key: '<file ${file.value.filename ?? ''} '
+              '(${file.value.length} bytes)>',
+      };
+    }
+
+    if (data is ResponseBody || data is Stream) return '<stream>';
+
     if (data is String) {
       try {
         return jsonDecode(data);
-      } catch (e) {
-        // If parsing fails, return the string as-is
+      } catch (_) {
         return data;
       }
     }
-    
-    // For other types, convert to string
+
     return data.toString();
   }
 }

@@ -36,6 +36,8 @@ class NetworkLog {
     this.errorMessage,
   });
 
+  static int _counter = 0;
+
   factory NetworkLog.create({
     required String method,
     required String endpoint,
@@ -51,8 +53,10 @@ class NetworkLog {
     dynamic responseBody,
     String? errorMessage,
   }) {
+    final now = DateTime.now();
     return NetworkLog(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      // Counter suffix keeps ids unique for logs created in the same millisecond.
+      id: '${now.microsecondsSinceEpoch}-${_counter++}',
       method: method,
       endpoint: endpoint,
       fullUrl: fullUrl,
@@ -60,7 +64,7 @@ class NetworkLog {
       path: path,
       queryParams: queryParams,
       statusCode: statusCode,
-      timestamp: DateTime.now(),
+      timestamp: now,
       duration: duration,
       requestHeaders: requestHeaders,
       requestBody: requestBody,
@@ -72,15 +76,50 @@ class NetworkLog {
 
   bool get isSuccess => statusCode >= 200 && statusCode < 300;
 
+  bool get isRedirect => statusCode >= 300 && statusCode < 400;
+
   bool get isClientError => statusCode >= 400 && statusCode < 500;
 
   bool get isServerError => statusCode >= 500 && statusCode < 600;
 
+  /// True when the request failed: HTTP 4xx/5xx, no status (network error)
+  /// or an explicit error message.
+  bool get isFailed =>
+      errorMessage != null || statusCode == 0 || statusCode >= 400;
+
   String get statusDescription {
     if (isSuccess) return 'Success';
+    if (isRedirect) return 'Redirect';
     if (isClientError) return 'Client Error';
     if (isServerError) return 'Server Error';
+    if (statusCode == 0) return 'No Response';
     return 'Unknown';
+  }
+
+  /// The best available URL for this log.
+  String get url => fullUrl ?? endpoint;
+
+  /// Value of the `Authorization` request header (case-insensitive), if any.
+  String? get authorizationHeader {
+    final headers = requestHeaders;
+    if (headers == null) return null;
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() == 'authorization' && entry.value != null) {
+        final value = entry.value;
+        return value is List ? value.join(', ') : value.toString();
+      }
+    }
+    return null;
+  }
+
+  /// The auth token without its scheme (`Bearer`, `Basic`, ...), if any.
+  String? get authToken {
+    final header = authorizationHeader?.trim();
+    if (header == null || header.isEmpty) return null;
+    final match =
+        RegExp(r'^(Bearer|Basic|Token|JWT|OAuth)\s+(.+)$', caseSensitive: false)
+            .firstMatch(header);
+    return match != null ? match.group(2)!.trim() : header;
   }
 }
 
@@ -100,7 +139,7 @@ class DebugOverlayController extends ChangeNotifier {
 
   static const int maxLogs = 100;
 
-  List<NetworkLog> get logs => _logs;
+  List<NetworkLog> get logs => List.unmodifiable(_logs);
 
   bool get isOverlayVisible => _isOverlayVisible;
 

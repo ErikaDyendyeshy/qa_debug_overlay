@@ -1,309 +1,170 @@
 # 🐞 QA Debug Overlay
+
+[![pub package](https://img.shields.io/pub/v/qa_debug_overlay.svg)](https://pub.dev/packages/qa_debug_overlay)
 [![GitHub stars](https://img.shields.io/github/stars/ErikaDyendyeshy/qa_debug_overlay.svg)](https://github.com/ErikaDyendyeshy/qa_debug_overlay)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-QA Debug Overlay — inspect HTTP calls, view JSON logs, and debug Flutter apps effortlessly.
+An in-app network inspector for Flutter, built for QA. See every request and response
+right on the device, find failed calls in a second, and send developers exactly what
+they need: **cURL, request, response, auth token or a full bug report — in one tap.**
 
-
-## 🎬 Demo
-
-![Demo](https://github.com/ErikaDyendyeshy/qa_debug_overlay/raw/main/demo.gif)
-
-*Demo showing the debug overlay in action on iOS simulator*
+![QA Debug Overlay demo](https://github.com/ErikaDyendyeshy/qa_debug_overlay/raw/main/doc/demo.gif)
 
 ## ✨ Features
 
-- **🐞 Draggable Debug Button** - Tap to view logs
-- **📊 Network Logging** - Automatic request/response capture
-- **🔍 JSON Viewer** - Collapsible tree view
-- **🪶 Super Lightweight** - Flexible dependencies, no version conflicts
-- **🚀 Zero Configuration** - No initialization needed!
-- **✅ No Conflicts** - Works with any project setup
+- **Floating debug button**: drag it anywhere and it snaps to the nearest edge. It shows the request count and turns red when something failed.
+- **Network log**: method, path, host, status, duration and time on one card.
+- **Search & filters**: search by URL, method or status. Filter by `2xx`, `4xx`, `5xx` or **Failed** (which includes network errors).
+- **Request details** in three tabs (Overview, Request and Response) with headers as a table and bodies as a collapsible JSON tree or raw text you can select.
+- **Copy actions** for QA ↔ dev communication:
+  | Action | What you get |
+  | --- | --- |
+  | **cURL** | A ready-to-run command for backend devs |
+  | **URL** | The full request URL |
+  | **Request** | Method, URL, headers and body |
+  | **Response** | Status, headers, body and the error, if any |
+  | **Auth token** | The token from the `Authorization` header, without `Bearer` |
+  | **Bug report** | Markdown for Jira, Slack or GitHub with cURL and both bodies |
+- **Copy any detail**: tap a header row to copy its value, or long-press any JSON node.
+- **Dio interceptor** with timings, errors, `FormData` and binary responses.
+- **Firebase helpers** for Cloud Functions and Firestore.
+- The overlay has its own dark theme, so it looks the same in any app and never inherits your app's styles.
 
 ## 📦 Installation
 
 ```yaml
 dependencies:
-  qa_debug_overlay: ^1.0.0
-  # Add your HTTP client (optional):
-  dio: ^5.9.0  # For automatic logging
-  http: ^1.5.0 # For manual logging
+  qa_debug_overlay: ^1.1.0
 ```
 
-## 🚀 Quick Start
+## 🚀 Quick start
 
-### 1. Wrap Your App (2 lines of code!)
+**1. Wrap your app:**
 
 ```dart
 MaterialApp(
-  builder: (context, child) {
-    return DebugOverlayWrapper(child: child!);
-  },
+  builder: (context, child) => DebugOverlayWrapper(child: child!),
+  home: const HomePage(),
 );
 ```
 
-### 2. Add Manual Logging (since DebugInterceptor was removed for pub.dev compatibility)
+**2. Add the interceptor to Dio:**
 
 ```dart
-// For manual logging:
-DebugOverlayController.instance.addLog(
-  NetworkLog.create(
-    method: 'GET',
-    endpoint: '/api/users',
-    statusCode: 200,
-    requestBody: {},
-    responseBody: response.data,
-  ),
-);
+final dio = Dio()..interceptors.add(DebugInterceptor());
 ```
 
-**That's it!** The 🐞 button will appear. Tap it to view logs.
+That's it! Tap the 🐞 button to see the logs.
 
-## 🌐 Supported HTTP Clients
-
-The debug overlay works with **multiple HTTP clients** - add only what you need:
-
-### 1. **Dio** (Manual Logging Required)
-```yaml
-dependencies:
-  qa_debug_overlay: ^1.0.0
-  dio: ^5.9.0  # Add this for HTTP requests
-```
-
-```dart
-final dio = Dio();
-final response = await dio.get('https://api.example.com');
-
-// Manual logging required:
-DebugOverlayController.instance.addLog(
-  NetworkLog.create(
-    method: 'GET',
-    endpoint: '/api/example',
-    statusCode: response.statusCode,
-    responseBody: response.data,
-  ),
-);
-```
-
-### 2. **HTTP Package** (Manual Logging)
-```yaml
-dependencies:
-  qa_debug_overlay: ^1.0.0
-  http: ^1.5.0  # Add this for manual logging
-```
-
-```dart
-import 'package:qa_debug_overlay/qa_debug_overlay.dart';
-
-// Use wrapper methods for automatic logging
-final response = await TestHttpLogger.getWithLogging('https://api.example.com');
-final response = await TestHttpLogger.postWithLogging('https://api.example.com', data: data);
-```
-
-### 3. **Any HTTP Client** (Manual Logging)
-```yaml
-dependencies:
-  qa_debug_overlay: ^1.0.0
-  # No additional dependencies needed!
-```
-
-```dart
-// Log any request manually
-DebugOverlayController.instance.addLog(
-  NetworkLog.create(
-    method: 'GET',
-    endpoint: '/api/users',
-    statusCode: 200,
-    requestBody: requestData,
-    responseBody: responseData,
-  ),
-);
-```
-
----
-
-## 📖 Complete Example
-
-```dart
-import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
-import 'package:qa_debug_overlay/qa_debug_overlay.dart';
-
-void main() {
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'My App',
-      // Just wrap with builder - no init needed!
-      builder: (context, child) {
-        return DebugOverlayWrapper(child: child!);
-      },
-      home: const HomePage(),
-    );
-  }
-}
-
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
-
-  @override
-  State<HomePage> createState() => _HomePageState();
-}
-
-class _HomePageState extends State<HomePage> {
-  late final Dio dio;
-
-  @override
-  void initState() {
-    super.initState();
-    dio = Dio();
-    dio.interceptors.add(DebugInterceptor()); // Add interceptor
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Home')),
-      body: Center(
-        child: ElevatedButton(
-          onPressed: () async {
-            await dio.get('https://jsonplaceholder.typicode.com/users');
-          },
-          child: const Text('Make API Call'),
-        ),
-      ),
-    );
-  }
-}
-```
-
----
-
-## 🎯 Features
-
-### Draggable Button
-- Drag anywhere on screen
-- Always on top
-- Tap to open logs
-
-### Network Logs
-- Method (GET, POST, PUT, DELETE)
-- Status code (color-coded)
-- Endpoint URL
-- Timestamp ("5s ago")
-- Duration (ms)
-
-### Log Details
-- Full request/response
-- JSON tree viewer
-- Headers
-- Copy to clipboard
-
----
-
-## 🔧 Advanced Usage
-
-### Programmatic Control
-
-```dart
-// Access controller
-final controller = DebugOverlayController.instance;
-
-// Show/hide overlay
-controller.setOverlayVisible(true);
-
-// Show/hide bottom sheet
-controller.showBottomSheet();
-controller.hideBottomSheet();
-
-// Add manual log
-controller.addLog(NetworkLog.create(
-  method: 'GET',
-  endpoint: '/api/test',
-  statusCode: 200,
-));
-
-// Clear logs
-controller.clearLogs();
-
-// Listen to changes
-controller.addListener(() {
-  print('Logs updated: ${controller.logs.length}');
-});
-```
-
-### Conditional Usage (Debug Only)
+### Show it only in debug or QA builds
 
 ```dart
 import 'package:flutter/foundation.dart';
 
 MaterialApp(
-  builder: (context, child) {
-    // Only show in debug mode
-    if (kDebugMode) {
-      return DebugOverlayWrapper(child: child!);
-    }
-    return child!;
-  },
-);
-```
-
----
-
-## 🐛 Troubleshooting
-
-### Bug button doesn't appear?
-
-Check:
-1. ✅ Wrapped with `DebugOverlayWrapper`
-2. ✅ Used in `builder` parameter
-3. ✅ Did Hot Restart (not just hot reload)
-
-### Logs are empty?
-
-Check:
-1. ✅ Added `DebugInterceptor()` to Dio
-2. ✅ Made an API call
-3. ✅ Tapped the 🐞 button
-
-### Using without Dio?
-
-You can manually add logs:
-
-```dart
-DebugOverlayController.instance.addLog(
-  NetworkLog.create(
-    method: 'GET',
-    endpoint: '/api/test',
-    statusCode: 200,
-    requestBody: {'key': 'value'},
-    responseBody: {'result': 'success'},
+  builder: (context, child) => DebugOverlayWrapper(
+    enabled: kDebugMode, // or your own flavor flag
+    child: child!,
   ),
 );
 ```
 
----
+## 🌐 Other HTTP clients
+
+### Firebase
+
+```dart
+final result = await FirebaseLogger.logCall(
+  name: 'getUserData',
+  params: params,
+  call: () => FirebaseFunctions.instance.httpsCallable('getUserData').call(params),
+);
+
+final doc = await FirebaseLogger.logRead(
+  collection: 'users',
+  docId: 'user123',
+  read: () => FirebaseFirestore.instance.collection('users').doc('user123').get(),
+);
+```
+
+### `http` or any other client
+
+```dart
+final stopwatch = Stopwatch()..start();
+final response = await http.get(uri, headers: headers);
+
+DebugOverlayController.instance.addLog(
+  NetworkLog.create(
+    method: 'GET',
+    endpoint: uri.toString(),
+    fullUrl: uri.toString(),
+    domain: '${uri.scheme}://${uri.host}',
+    path: uri.path,
+    statusCode: response.statusCode,
+    duration: stopwatch.elapsed,
+    requestHeaders: headers,
+    responseHeaders: response.headers,
+    responseBody: response.body, // JSON strings are parsed automatically
+  ),
+);
+```
+
+## 📋 Formatting logs in code
+
+`NetworkLogFormatter` is the same formatter the copy buttons use. You can call it yourself,
+for example to attach the last failed request to a crash report:
+
+```dart
+final failed = DebugOverlayController.instance.logs.firstWhere((log) => log.isFailed);
+
+NetworkLogFormatter.toCurl(failed);       // curl -X POST 'https://…' -H '…' --data-raw '…'
+NetworkLogFormatter.requestText(failed);  // method, URL, headers and body
+NetworkLogFormatter.responseText(failed); // status, headers, body and error
+NetworkLogFormatter.bugReport(failed);    // Markdown report
+failed.authToken;                         // token from the Authorization header
+```
+
+## 🔧 Controller
+
+```dart
+final controller = DebugOverlayController.instance;
+
+controller.setOverlayVisible(false); // hide the button
+controller.showBottomSheet();        // open the logs
+controller.hideBottomSheet();
+controller.clearLogs();
+controller.addListener(() => print('Logs: ${controller.logs.length}'));
+```
+
+The controller keeps the latest `DebugOverlayController.maxLogs` (100) requests.
+
+## 🐛 Troubleshooting
+
+**The button doesn't appear.** Make sure `DebugOverlayWrapper` is used in the
+`MaterialApp.builder` (not in `home`), then do a hot restart.
+
+**The logs are empty.** Make sure `DebugInterceptor()` is added to the same `Dio`
+instance that makes the calls.
+
+> ⚠️ The overlay shows tokens and request bodies in plain text. Ship it only in
+> debug or QA builds.
 
 ## 🤝 Contributing
 
-Contributions welcome! This is now a simple, maintainable codebase.
+Issues and PRs are welcome. To run the tests:
 
----
+```bash
+flutter test
+```
+
+To re-render the demo GIF after changing the UI:
+
+```bash
+flutter test tool/demo/record_demo_test.dart && tool/demo/encode.sh
+```
 
 ## 📝 License
 
-MIT License - see [LICENSE](LICENSE) file.
+MIT License. See the [LICENSE](LICENSE) file.
 
----
-
-## 🙏 Credits
-
-Created by [Erika](https://github.com/ErikaDyendyeshy) — QA meets Flutter magic 💚
-
-**Made Simple. No Drama.** 😎
+Created by [Erika](https://github.com/ErikaDyendyeshy). QA meets Flutter magic 💚
