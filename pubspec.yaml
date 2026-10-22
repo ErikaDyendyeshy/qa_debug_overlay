@@ -10,7 +10,6 @@ topics:
   - qa
   - dio
   - http
-  - logging
 
 screenshots:
   - description: QA Debug Overlay — logs list, request details and copy actions.
