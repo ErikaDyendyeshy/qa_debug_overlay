@@ -80,6 +80,47 @@ void main() {
     expect(find.text('/orders'), findsOneWidget);
   });
 
+  testWidgets('button badge does not use the error text style', (tester) async {
+    await pumpApp(tester);
+    controller.addLog(log());
+    await tester.pump();
+
+    // Outside a Material, MaterialApp renders text red with a yellow underline.
+    final badge = tester.widget<RichText>(
+      find
+          .descendant(
+            of: find.byType(DraggableDebugButton),
+            matching: find.byType(RichText),
+          )
+          .last,
+    );
+    final style = badge.text.style;
+    expect(style?.decoration, isNot(TextDecoration.underline));
+    expect(find.text('1'), findsOneWidget);
+  });
+
+  testWidgets('button follows a fast drag and snaps to the nearest edge',
+      (tester) async {
+    await pumpApp(tester);
+    final button = find.byType(DraggableDebugButton);
+    final start = tester.getCenter(button);
+
+    // Several moves before a frame is pumped must all be applied.
+    final gesture = await tester.startGesture(start);
+    for (var i = 0; i < 10; i++) {
+      await gesture.moveBy(const Offset(-30, -20));
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    final end = tester.getTopLeft(
+      find.descendant(of: button, matching: find.byType(AnimatedScale)),
+    );
+    expect(end.dx, 12, reason: 'snaps to the left edge');
+    // The first move is partly eaten by the touch slop.
+    expect(end.dy, closeTo(start.dy - 28 - 190, 15));
+  });
+
   testWidgets('shows an empty state without logs', (tester) async {
     await pumpApp(tester);
     await openSheet(tester);

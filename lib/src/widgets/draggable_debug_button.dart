@@ -28,12 +28,15 @@ class _DraggableDebugButtonState extends State<DraggableDebugButton> {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final padding = MediaQuery.paddingOf(context);
-    final position = _clamp(
-      _savedPosition ??
-          Offset(size.width - buttonSize - _margin, size.height * 0.6),
-      size,
-      padding,
-    );
+    // Read the position fresh in every callback: several pan updates can
+    // arrive before the next build.
+    Offset current() => _clamp(
+          _savedPosition ??
+              Offset(size.width - buttonSize - _margin, size.height * 0.6),
+          size,
+          padding,
+        );
+    final position = current();
 
     return AnimatedPositioned(
       duration: _isDragging ? Duration.zero : const Duration(milliseconds: 220),
@@ -43,14 +46,15 @@ class _DraggableDebugButtonState extends State<DraggableDebugButton> {
       child: GestureDetector(
         onPanStart: (_) => setState(() => _isDragging = true),
         onPanUpdate: (details) => setState(() {
-          _savedPosition = _clamp(position + details.delta, size, padding);
+          _savedPosition = _clamp(current() + details.delta, size, padding);
         }),
         onPanEnd: (_) => setState(() {
           _isDragging = false;
-          final snapLeft = position.dx + buttonSize / 2 < size.width / 2;
+          final end = current();
+          final snapLeft = end.dx + buttonSize / 2 < size.width / 2;
           _savedPosition = Offset(
             snapLeft ? _margin : size.width - buttonSize - _margin,
-            position.dy,
+            end.dy,
           );
         }),
         onTap: DebugOverlayController.instance.showBottomSheet,
@@ -59,10 +63,24 @@ class _DraggableDebugButtonState extends State<DraggableDebugButton> {
           builder: (context, _) {
             final logs = DebugOverlayController.instance.logs;
             final hasFailures = logs.any((log) => log.isFailed);
-            return AnimatedScale(
-              scale: _isDragging ? 1.08 : 1,
-              duration: const Duration(milliseconds: 150),
-              child: _ButtonBody(count: logs.length, hasFailures: hasFailures),
+            return Semantics(
+              container: true,
+              button: true,
+              label: 'Open network logs',
+              value: '${logs.length} requests',
+              child: AnimatedScale(
+                scale: _isDragging ? 1.08 : 1,
+                duration: const Duration(milliseconds: 150),
+                // The button sits outside any Material, so give its text a
+                // proper style instead of MaterialApp's red error style.
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: _ButtonBody(
+                    count: logs.length,
+                    hasFailures: hasFailures,
+                  ),
+                ),
+              ),
             );
           },
         ),

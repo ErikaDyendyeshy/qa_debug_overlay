@@ -13,7 +13,7 @@ ffmpeg -y -loglevel error -framerate 25 -i "$frames/frame_%05d.png" \
 
 # GIF for pub.dev (README images only).
 ffmpeg -y -loglevel error -framerate 25 -i "$frames/frame_%05d.png" \
-  -vf "fps=15,scale=800:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
+  -vf "fps=15,scale=800:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=256:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" \
   doc/demo.gif
 
 # Static screenshot for pub.dev's gallery.

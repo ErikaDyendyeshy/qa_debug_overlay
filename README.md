@@ -34,7 +34,7 @@ they need: **cURL, request, response, auth token or a full bug report — in one
 
 ```yaml
 dependencies:
-  qa_debug_overlay: ^1.1.0
+  qa_debug_overlay: ^1.1.1
 ```
 
 ## 🚀 Quick start

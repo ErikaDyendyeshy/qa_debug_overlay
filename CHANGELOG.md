@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2026-10-22
+
+Fixes found while testing on a real Android device.
+
+### 🐛 Fixes
+- Fixed the floating button's request counter, which was drawn with MaterialApp's
+  red, underlined error text style.
+- The floating button now follows fast drags. Before, some movement was lost
+  and the button snapped to the wrong edge.
+- Errors for 4xx/5xx responses are now short: `[badResponse] HTTP 404 Not Found`
+  instead of Dio's long generic paragraph.
+- The "copied" toast moved to the top so it doesn't overlap the clipboard preview
+  on Android 13+.
+- The floating button has an accessibility label ("Open network logs").
+- A sharper demo GIF.
+
 ## [1.1.0] - 2026-10-22
 
 ### ✨ New

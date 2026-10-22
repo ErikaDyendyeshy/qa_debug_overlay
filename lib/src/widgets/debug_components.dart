@@ -56,10 +56,12 @@ class CopyToastScopeState extends State<CopyToastScope> {
       fit: StackFit.expand,
       children: [
         widget.child,
+        // At the top: Android 13+ shows its own clipboard preview at the
+        // bottom-left corner.
         Positioned(
           left: 0,
           right: 0,
-          bottom: 24 + MediaQuery.paddingOf(context).bottom,
+          top: 12 + MediaQuery.paddingOf(context).top,
           child: IgnorePointer(
             child: Center(
               child: AnimatedSwitcher(

@@ -720,8 +720,8 @@ class _ActionButton extends StatelessWidget {
     );
     const style = ButtonStyle(
       minimumSize: WidgetStatePropertyAll(Size.fromHeight(52)),
-      textStyle: WidgetStatePropertyAll(
-          TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+      textStyle: WidgetStatePropertyAll(TextStyle(
+          fontFamily: 'Roboto', fontSize: 15, fontWeight: FontWeight.w600)),
     );
     return filled
         ? FilledButton(onPressed: () {}, style: style, child: child)
@@ -823,7 +823,7 @@ abstract final class _SampleLogs {
         ms: 1240,
         headers: _headers(),
         response: {'error': 'INTERNAL', 'trace_id': 'a91c-77de'},
-        error: '[badResponse] Internal Server Error',
+        error: '[badResponse] HTTP 500 Internal Server Error',
       );
 
   static NetworkLog cart() => _log(
@@ -851,6 +851,6 @@ abstract final class _SampleLogs {
           'message': 'Card has expired',
           'fields': {'payment.exp': 'must be in the future'},
         },
-        error: '[badResponse] Unprocessable Entity',
+        error: '[badResponse] HTTP 422 Unprocessable Entity',
       );
 }

@@ -76,7 +76,7 @@ void main() {
     final log = controller.logs.single;
     expect(log.statusCode, 404);
     expect(log.responseBody, {'error': 'nope'});
-    expect(log.errorMessage, startsWith('[badResponse]'));
+    expect(log.errorMessage, '[badResponse] HTTP 404');
     expect(log.isFailed, isTrue);
   });
 

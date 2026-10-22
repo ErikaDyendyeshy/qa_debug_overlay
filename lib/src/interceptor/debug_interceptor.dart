@@ -96,8 +96,16 @@ class DebugInterceptor extends Interceptor {
   }
 
   String _describeError(DioException err) {
-    final message = err.message ?? err.error?.toString();
     final type = err.type.name;
+    final response = err.response;
+    // Dio's badResponse message is a long generic paragraph; the status line
+    // says the same thing in a few words.
+    if (err.type == DioExceptionType.badResponse && response != null) {
+      final reason = response.statusMessage;
+      return '[$type] HTTP ${response.statusCode}'
+          '${reason != null && reason.isNotEmpty ? ' $reason' : ''}';
+    }
+    final message = err.message ?? err.error?.toString();
     return message != null && message.isNotEmpty
         ? '[$type] $message'
         : '[$type]';
